@@ -4,8 +4,8 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 /// Pinned ghostty commit. Update this to pull a newer version.
-const GHOSTTY_REPO: &str = "https://github.com/ghostty-org/ghostty.git";
-const GHOSTTY_COMMIT: &str = "debcffbadb75221a030319c075fae12cfe114176";
+const GHOSTTY_REPO: &str = "https://github.com/jemdiggity/ghostty.git";
+const GHOSTTY_COMMIT: &str = "665a03f380204ce1976941d36649963b4da80880";
 
 fn main() {
     // docs.rs has no Zig toolchain. The checked-in bindings in src/bindings.rs
