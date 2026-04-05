@@ -1,4 +1,5 @@
 use std::env;
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -18,7 +19,7 @@ fn main() {
     println!("cargo:rerun-if-env-changed=GHOSTTY_SOURCE_DIR");
     println!("cargo:rerun-if-env-changed=TARGET");
     println!("cargo:rerun-if-env-changed=HOST");
-    println!("cargo:rerun-if-changed=crates/libghostty-vt-sys/build.rs");
+    println!("cargo:rerun-if-changed=build.rs");
 
     let out_dir = PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR must be set"));
     let target = env::var("TARGET").expect("TARGET must be set");
@@ -61,15 +62,15 @@ fn main() {
     let lib_dir = install_prefix.join("lib");
     let include_dir = install_prefix.join("include");
 
-    let lib_name = if target.contains("darwin") {
-        "libghostty-vt.0.1.0.dylib"
+    let lib_name = if target.contains("windows") {
+        "ghostty-vt-static.lib"
     } else {
-        "libghostty-vt.so.0.1.0"
+        "libghostty-vt.a"
     };
 
     assert!(
         lib_dir.join(lib_name).exists(),
-        "expected shared library at {}",
+        "expected static library at {}",
         lib_dir.join(lib_name).display()
     );
     assert!(
@@ -79,8 +80,56 @@ fn main() {
     );
 
     println!("cargo:rustc-link-search=native={}", lib_dir.display());
-    println!("cargo:rustc-link-lib=dylib=ghostty-vt");
+    println!("cargo:rustc-link-lib=static=ghostty-vt");
+    for companion in find_companion_static_libs(&ghostty_dir) {
+        if let Some(parent) = companion.parent() {
+            println!("cargo:rustc-link-search=native={}", parent.display());
+        }
+        if let Some(name) = static_lib_stem(&companion) {
+            println!("cargo:rustc-link-lib=static={name}");
+        }
+    }
+    if target.contains("darwin") {
+        println!("cargo:rustc-link-lib=c++");
+    }
     println!("cargo:include={}", include_dir.display());
+}
+
+fn find_companion_static_libs(ghostty_dir: &Path) -> Vec<PathBuf> {
+    let cache_dir = ghostty_dir.join(".zig-cache");
+    let wanted = ["libsimdutf.a", "libhighway.a", "libutfcpp.a"];
+    let mut found = Vec::new();
+    for name in wanted {
+        if let Some(path) = find_file_recursive(&cache_dir, name) {
+            found.push(path);
+        }
+    }
+    found
+}
+
+fn find_file_recursive(root: &Path, needle: &str) -> Option<PathBuf> {
+    let entries = fs::read_dir(root).ok()?;
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            if let Some(found) = find_file_recursive(&path, needle) {
+                return Some(found);
+            }
+        } else if path.file_name().and_then(|v| v.to_str()) == Some(needle) {
+            return Some(path);
+        }
+    }
+    None
+}
+
+fn static_lib_stem(path: &Path) -> Option<String> {
+    let file_name = path.file_name()?.to_str()?;
+    let stem = file_name
+        .strip_prefix("lib")
+        .unwrap_or(file_name)
+        .strip_suffix(".a")
+        .unwrap_or(file_name);
+    Some(stem.to_string())
 }
 
 /// Clone ghostty at the pinned commit into OUT_DIR/ghostty-src.

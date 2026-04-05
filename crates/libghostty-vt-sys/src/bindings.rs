@@ -117,6 +117,10 @@ impl Default for String {
         }
     }
 }
+unsafe extern "C" {
+    #[doc = " Return a pointer to a null-terminated JSON string describing the\n layout of every C API struct for the current target.\n\n This is primarily useful for language bindings that can't easily\n set C struct fields and need to do so via byte offsets. For example,\n WebAssembly modules can't share struct definitions with the host.\n\n Example (abbreviated):\n {\n   \"GhosttyMouseEncoderSize\": {\n     \"size\": 40,\n     \"align\": 8,\n     \"fields\": {\n       \"size\":           { \"offset\": 0,  \"size\": 8, \"type\": \"u64\" },\n       \"screen_width\":   { \"offset\": 8,  \"size\": 4, \"type\": \"u32\" },\n       \"screen_height\":  { \"offset\": 12, \"size\": 4, \"type\": \"u32\" },\n       \"cell_width\":     { \"offset\": 16, \"size\": 4, \"type\": \"u32\" },\n       \"cell_height\":    { \"offset\": 20, \"size\": 4, \"type\": \"u32\" },\n       \"padding_top\":    { \"offset\": 24, \"size\": 4, \"type\": \"u32\" },\n       \"padding_bottom\": { \"offset\": 28, \"size\": 4, \"type\": \"u32\" },\n       \"padding_right\":  { \"offset\": 32, \"size\": 4, \"type\": \"u32\" },\n       \"padding_left\":   { \"offset\": 36, \"size\": 4, \"type\": \"u32\" }\n     }\n   }\n }\n\n The returned pointer is valid for the lifetime of the process.\n"]
+    pub fn ghostty_type_json() -> *const ::std::os::raw::c_char;
+}
 #[doc = " Function table for custom memory allocator operations.\n\n This vtable defines the interface for a custom memory allocator. All\n function pointers must be valid and non-NULL.\n\n\n If you're not going to use a custom allocator, you can ignore all of\n this. All functions that take an allocator pointer allow NULL to use a\n default allocator.\n\n The interface is based on the Zig allocator interface. I'll say up front\n that it is easy to look at this interface and think \"wow, this is really\n overcomplicated\". The reason for this complexity is well thought out by\n the Zig folks, and it enables a diverse set of allocation strategies\n as shown by the Zig ecosystem. As a consolation, please note that many\n of the arguments are only needed for advanced use cases and can be\n safely ignored in simple implementations. For example, if you look at\n the Zig implementation of the libc allocator in `lib/std/heap.zig`\n (search for CAllocator), you'll see it is very simple.\n\n We chose to align with the Zig allocator interface because:\n\n   1. It is a proven interface that serves a wide variety of use cases\n      in the real world via the Zig ecosystem. It's shown to work.\n\n   2. Our core implementation itself is Zig, and this lets us very\n      cheaply and easily convert between C and Zig allocators.\n\n NOTE(mitchellh): In the future, we can have default implementations of\n resize/remap and allow those to be null."]
 #[repr(C)]
 #[derive(Debug, Default, Copy, Clone)]
@@ -1153,9 +1157,27 @@ unsafe extern "C" {
     ) -> Result::Type;
 }
 unsafe extern "C" {
+    #[doc = " Get data from a specific terminal screen.\n\n Extracts typed data from the requested screen buffer rather than the\n currently active screen. The output pointer must be of the appropriate\n type for the requested data kind. Valid data kinds match the\n `GhosttyTerminalData` enum, but only screen-local values are meaningful.\n For example, cursor position, scrollback counts, and cursor style are\n resolved against the chosen screen, while terminal-global values such as\n dimensions are identical across screens.\n\n If the requested screen does not exist (for example the alternate screen\n has never been entered), this returns GHOSTTY_NO_VALUE.\n\n         screen does not exist, or GHOSTTY_INVALID_VALUE if the terminal\n         is NULL or the data type is invalid\n"]
+    pub fn ghostty_terminal_screen_get(
+        terminal: Terminal,
+        screen: TerminalScreen::Type,
+        data: TerminalData::Type,
+        out: *mut ::std::os::raw::c_void,
+    ) -> Result::Type;
+}
+unsafe extern "C" {
     #[doc = " Resolve a point in the terminal grid to a grid reference.\n\n Resolves the given point (which can be in active, viewport, screen,\n or history coordinates) to a grid reference for that location. Use\n ghostty_grid_ref_cell() and ghostty_grid_ref_row() to extract the cell\n and row.\n\n Lookups using the `active` and `viewport` tags are fast. The `screen`\n and `history` tags may require traversing the full scrollback page list\n to resolve the y coordinate, so they can be expensive for large\n scrollback buffers.\n\n This function isn't meant to be used as the core of render loop. It\n isn't built to sustain the framerates needed for rendering large screens.\n Use the render state API for that. This API is instead meant for less\n strictly performance-sensitive use cases.\n\n         is NULL or the point is out of bounds\n"]
     pub fn ghostty_terminal_grid_ref(
         terminal: Terminal,
+        point: Point,
+        out_ref: *mut GridRef,
+    ) -> Result::Type;
+}
+unsafe extern "C" {
+    #[doc = " Resolve a point in a specific terminal screen to a grid reference.\n\n Resolves the given point against the requested screen buffer rather than\n the currently active screen. The same coordinate tags as\n ghostty_terminal_grid_ref() are accepted, but they are interpreted against\n the chosen screen's page list.\n\n If the requested screen does not exist (for example the alternate screen\n has never been entered), this returns GHOSTTY_NO_VALUE.\n\n         screen does not exist, or GHOSTTY_INVALID_VALUE if the terminal\n         is NULL or the point is out of bounds\n"]
+    pub fn ghostty_terminal_screen_grid_ref(
+        terminal: Terminal,
+        screen: TerminalScreen::Type,
         point: Point,
         out_ref: *mut GridRef,
     ) -> Result::Type;
@@ -2085,7 +2107,7 @@ pub mod Key {
 unsafe extern "C" {
     #[doc = " Create a new key event instance.\n\n Creates a new key event with default values. The event must be freed using\n ghostty_key_event_free() when no longer needed.\n\n"]
     pub fn ghostty_key_event_new(allocator: *const Allocator, event: *mut KeyEvent)
-        -> Result::Type;
+    -> Result::Type;
 }
 unsafe extern "C" {
     #[doc = " Free a key event instance.\n\n Releases all resources associated with the key event. After this call,\n the event handle becomes invalid and must not be used.\n\n"]

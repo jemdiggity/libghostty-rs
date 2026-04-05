@@ -201,7 +201,7 @@ impl From<StyleColor> for ffi::StyleColor {
                 value: ffi::StyleColorValue { palette },
             },
             StyleColor::Rgb(rgb) => Self {
-                tag: ffi::StyleColorTag::NONE,
+                tag: ffi::StyleColorTag::RGB,
                 value: ffi::StyleColorValue { rgb: rgb.into() },
             },
         }
@@ -219,5 +219,24 @@ impl From<RgbColor> for ffi::ColorRgb {
     fn from(value: RgbColor) -> Self {
         let RgbColor { r, g, b } = value;
         Self { r, g, b }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{RgbColor, Style, StyleColor};
+
+    #[test]
+    fn rgb_background_style_is_not_default() {
+        let style = Style {
+            bg_color: StyleColor::Rgb(RgbColor {
+                r: 57,
+                g: 57,
+                b: 57,
+            }),
+            ..Style::default()
+        };
+
+        assert!(!style.is_default());
     }
 }

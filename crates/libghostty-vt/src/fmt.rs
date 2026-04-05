@@ -28,6 +28,44 @@ pub struct FormatterOptions {
     pub trim: bool,
     /// Whether to unwrap soft-wrapped lines.
     pub unwrap: bool,
+    /// Extra terminal/screen state to include in the formatted output.
+    pub extra: FormatterExtra,
+}
+
+/// Extra screen state to include in formatted output.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub struct FormatterScreenExtra {
+    /// Emit cursor position using CUP (CSI H).
+    pub cursor: bool,
+    /// Emit current SGR style state based on the cursor's active style_id.
+    pub style: bool,
+    /// Emit current hyperlink state using OSC 8 sequences.
+    pub hyperlink: bool,
+    /// Emit character protection mode using DECSCA.
+    pub protection: bool,
+    /// Emit Kitty keyboard protocol state using CSI > u and CSI = sequences.
+    pub kitty_keyboard: bool,
+    /// Emit character set designations and invocations.
+    pub charsets: bool,
+}
+
+/// Extra terminal state to include in formatted output.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub struct FormatterExtra {
+    /// Emit the palette using OSC 4 sequences.
+    pub palette: bool,
+    /// Emit terminal modes that differ from their defaults using CSI h/l.
+    pub modes: bool,
+    /// Emit scrolling region state using DECSTBM and DECSLRM sequences.
+    pub scrolling_region: bool,
+    /// Emit tabstop positions by clearing all tabs and setting each one.
+    pub tabstops: bool,
+    /// Emit the present working directory using OSC 7.
+    pub pwd: bool,
+    /// Emit keyboard modes such as ModifyOtherKeys.
+    pub keyboard: bool,
+    /// Emit screen-level extras.
+    pub screen: FormatterScreenExtra,
 }
 
 impl<'t, 'alloc: 'cb, 'cb: 't> Formatter<'t, 'alloc, 'cb> {
@@ -156,8 +194,37 @@ impl From<FormatterOptions> for ffi::FormatterTerminalOptions {
             size: std::mem::size_of::<ffi::FormatterTerminalOptions>(),
             emit: value.format.into(),
             trim: value.trim,
-            extra: ffi::FormatterTerminalExtra::default(),
+            extra: value.extra.into(),
             unwrap: value.unwrap,
+        }
+    }
+}
+
+impl From<FormatterExtra> for ffi::FormatterTerminalExtra {
+    fn from(value: FormatterExtra) -> Self {
+        Self {
+            size: std::mem::size_of::<ffi::FormatterTerminalExtra>(),
+            palette: value.palette,
+            modes: value.modes,
+            scrolling_region: value.scrolling_region,
+            tabstops: value.tabstops,
+            pwd: value.pwd,
+            keyboard: value.keyboard,
+            screen: value.screen.into(),
+        }
+    }
+}
+
+impl From<FormatterScreenExtra> for ffi::FormatterScreenExtra {
+    fn from(value: FormatterScreenExtra) -> Self {
+        Self {
+            size: std::mem::size_of::<ffi::FormatterScreenExtra>(),
+            cursor: value.cursor,
+            style: value.style,
+            hyperlink: value.hyperlink,
+            protection: value.protection,
+            kitty_keyboard: value.kitty_keyboard,
+            charsets: value.charsets,
         }
     }
 }

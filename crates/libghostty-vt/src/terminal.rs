@@ -250,6 +250,33 @@ impl<'alloc: 'cb, 'cb> Terminal<'alloc, 'cb> {
         })
     }
 
+    /// Resolve a point in a specific terminal screen to a grid reference.
+    ///
+    /// Returns `Ok(None)` if the requested screen does not exist yet, for
+    /// example when the alternate screen has never been entered.
+    pub fn screen_grid_ref(
+        &self,
+        screen: ffi::TerminalScreen::Type,
+        point: Point,
+    ) -> Result<Option<GridRef<'_>>> {
+        let mut grid_ref = ffi::sized!(ffi::GridRef);
+        let result = unsafe {
+            ffi::ghostty_terminal_screen_grid_ref(
+                self.inner.as_raw(),
+                screen,
+                point.into(),
+                &raw mut grid_ref,
+            )
+        };
+        match from_optional_result(result, MaybeUninit::new(grid_ref))? {
+            Some(inner) => Ok(Some(GridRef {
+                inner,
+                _phan: PhantomData,
+            })),
+            None => Ok(None),
+        }
+    }
+
     /// Get the current value of a terminal mode.
     pub fn mode(&self, mode: Mode) -> Result<bool> {
         let mut value = false;
@@ -280,6 +307,22 @@ impl<'alloc: 'cb, 'cb> Terminal<'alloc, 'cb> {
         let mut value = MaybeUninit::<T>::zeroed();
         let result = unsafe {
             ffi::ghostty_terminal_get(self.inner.as_raw(), tag, value.as_mut_ptr().cast())
+        };
+        from_optional_result(result, value)
+    }
+    fn screen_get_optional<T>(
+        &self,
+        screen: ffi::TerminalScreen::Type,
+        tag: ffi::TerminalData::Type,
+    ) -> Result<Option<T>> {
+        let mut value = MaybeUninit::<T>::zeroed();
+        let result = unsafe {
+            ffi::ghostty_terminal_screen_get(
+                self.inner.as_raw(),
+                screen,
+                tag,
+                value.as_mut_ptr().cast(),
+            )
         };
         from_optional_result(result, value)
     }
@@ -389,6 +432,56 @@ impl<'alloc: 'cb, 'cb> Terminal<'alloc, 'cb> {
     pub fn scrollback_rows(&self) -> Result<usize> {
         self.get(Data::SCROLLBACK_ROWS)
     }
+    /// The number of scrollback rows in a specific screen.
+    pub fn screen_scrollback_rows(
+        &self,
+        screen: ffi::TerminalScreen::Type,
+    ) -> Result<Option<usize>> {
+        self.screen_get_optional(screen, Data::SCROLLBACK_ROWS)
+    }
+    /// The total number of rows in a specific screen including scrollback.
+    pub fn screen_total_rows(&self, screen: ffi::TerminalScreen::Type) -> Result<Option<usize>> {
+        self.screen_get_optional(screen, Data::TOTAL_ROWS)
+    }
+    /// Get the cursor column position for a specific screen.
+    pub fn screen_cursor_x(&self, screen: ffi::TerminalScreen::Type) -> Result<Option<u16>> {
+        self.screen_get_optional(screen, Data::CURSOR_X)
+    }
+    /// Get the cursor row position for a specific screen.
+    pub fn screen_cursor_y(&self, screen: ffi::TerminalScreen::Type) -> Result<Option<u16>> {
+        self.screen_get_optional(screen, Data::CURSOR_Y)
+    }
+    /// Get whether a specific screen cursor has a pending wrap.
+    pub fn screen_is_cursor_pending_wrap(
+        &self,
+        screen: ffi::TerminalScreen::Type,
+    ) -> Result<Option<bool>> {
+        self.screen_get_optional(screen, Data::CURSOR_PENDING_WRAP)
+    }
+    /// Get the current SGR cursor style for a specific screen.
+    pub fn screen_cursor_style(
+        &self,
+        screen: ffi::TerminalScreen::Type,
+    ) -> Result<Option<style::Style>> {
+        self.screen_get_optional::<ffi::Style>(screen, Data::CURSOR_STYLE)?
+            .map(std::convert::TryInto::try_into)
+            .transpose()
+    }
+    /// Get the scrollbar state for a specific screen viewport.
+    pub fn screen_scrollbar(
+        &self,
+        screen: ffi::TerminalScreen::Type,
+    ) -> Result<Option<ffi::TerminalScrollbar>> {
+        self.screen_get_optional(screen, Data::SCROLLBAR)
+    }
+    /// Get the Kitty keyboard flags for a specific screen.
+    pub fn screen_kitty_keyboard_flags(
+        &self,
+        screen: ffi::TerminalScreen::Type,
+    ) -> Result<Option<key::KittyKeyFlags>> {
+        self.screen_get_optional::<ffi::KittyKeyFlags>(screen, Data::KITTY_KEYBOARD_FLAGS)
+            .map(|value| value.map(key::KittyKeyFlags::from_bits_retain))
+    }
 
     /// The effective foreground color (override or default).
     pub fn fg_color(&self) -> Result<Option<RgbColor>> {
@@ -451,6 +544,76 @@ impl<'alloc: 'cb, 'cb> Terminal<'alloc, 'cb> {
             Opt::COLOR_PALETTE,
             v.map(|v| v.map(ffi::ColorRgb::from)).as_ref(),
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Options, Point, PointCoordinate, Terminal};
+    use crate::ffi;
+
+    #[test]
+    fn screen_grid_ref_reads_inactive_primary_and_active_alternate() {
+        let mut terminal = Terminal::new(Options {
+            cols: 8,
+            rows: 2,
+            max_scrollback: 0,
+        })
+        .unwrap();
+
+        terminal.vt_write(b"ab");
+        terminal.vt_write(b"\x1b[?1049h");
+        terminal.vt_write(b"\x1b[Hxy");
+
+        let primary = terminal
+            .screen_grid_ref(
+                ffi::TerminalScreen::PRIMARY,
+                Point::Screen(PointCoordinate { x: 0, y: 0 }),
+            )
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            primary.cell().unwrap().codepoint().unwrap(),
+            u32::from(b'a')
+        );
+
+        let alternate = terminal
+            .screen_grid_ref(
+                ffi::TerminalScreen::ALTERNATE,
+                Point::Screen(PointCoordinate { x: 0, y: 0 }),
+            )
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            alternate.cell().unwrap().codepoint().unwrap(),
+            u32::from(b'x')
+        );
+    }
+
+    #[test]
+    fn screen_specific_getters_return_none_for_missing_alternate() {
+        let terminal = Terminal::new(Options {
+            cols: 8,
+            rows: 2,
+            max_scrollback: 0,
+        })
+        .unwrap();
+
+        assert_eq!(
+            terminal
+                .screen_cursor_x(ffi::TerminalScreen::ALTERNATE)
+                .unwrap(),
+            None
+        );
+        assert!(
+            terminal
+                .screen_grid_ref(
+                    ffi::TerminalScreen::ALTERNATE,
+                    Point::Screen(PointCoordinate { x: 0, y: 0 }),
+                )
+                .unwrap()
+                .is_none()
+        );
     }
 }
 
