@@ -1,0 +1,11 @@
+.{
+    .name = .highway,
+    .version = "1.2.0",
+    .fingerprint = 0xdbcf1a7425023274,
+    .paths = .{""},
+    .dependencies = .{
+        .highway = .{ .path = "./vendor" },
+        .apple_sdk = .{ .path = "../apple-sdk" },
+        .android_ndk = .{ .path = "../android-ndk" },
+    },
+}

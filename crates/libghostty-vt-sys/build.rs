@@ -20,6 +20,7 @@ fn main() {
     println!("cargo:rerun-if-env-changed=TARGET");
     println!("cargo:rerun-if-env-changed=HOST");
     println!("cargo:rerun-if-changed=build.rs");
+    println!("cargo:rerun-if-changed=vendor/ghostty-overrides");
 
     let out_dir = PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR must be set"));
     let target = env::var("TARGET").expect("TARGET must be set");
@@ -38,6 +39,7 @@ fn main() {
         }
         Err(_) => fetch_ghostty(&out_dir),
     };
+    apply_ghostty_overrides(&ghostty_dir);
 
     // Build libghostty-vt via zig.
     let install_prefix = out_dir.join("ghostty-install");
@@ -120,6 +122,50 @@ fn find_file_recursive(root: &Path, needle: &str) -> Option<PathBuf> {
         }
     }
     None
+}
+
+fn apply_ghostty_overrides(ghostty_dir: &Path) {
+    let overlay_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("vendor/ghostty-overrides");
+    if !overlay_dir.exists() {
+        panic!("missing ghostty overrides at {}", overlay_dir.display());
+    }
+
+    copy_dir_recursive(&overlay_dir, ghostty_dir);
+}
+
+fn copy_dir_recursive(src: &Path, dst: &Path) {
+    let entries = fs::read_dir(src)
+        .unwrap_or_else(|error| panic!("failed to read {}: {error}", src.display()));
+
+    fs::create_dir_all(dst)
+        .unwrap_or_else(|error| panic!("failed to create {}: {error}", dst.display()));
+
+    for entry in entries {
+        let entry =
+            entry.unwrap_or_else(|error| panic!("failed to read directory entry in {}: {error}", src.display()));
+        let src_path = entry.path();
+        let dst_path = dst.join(entry.file_name());
+        let file_type = entry
+            .file_type()
+            .unwrap_or_else(|error| panic!("failed to read file type for {}: {error}", src_path.display()));
+
+        if file_type.is_dir() {
+            copy_dir_recursive(&src_path, &dst_path);
+            continue;
+        }
+
+        if let Some(parent) = dst_path.parent() {
+            fs::create_dir_all(parent)
+                .unwrap_or_else(|error| panic!("failed to create {}: {error}", parent.display()));
+        }
+        fs::copy(&src_path, &dst_path).unwrap_or_else(|error| {
+            panic!(
+                "failed to copy {} to {}: {error}",
+                src_path.display(),
+                dst_path.display()
+            )
+        });
+    }
 }
 
 fn static_lib_stem(path: &Path) -> Option<String> {
