@@ -125,7 +125,10 @@ fn find_file_recursive(root: &Path, needle: &str) -> Option<PathBuf> {
 }
 
 fn apply_ghostty_overrides(ghostty_dir: &Path) {
-    let overlay_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("vendor/ghostty-overrides");
+    let manifest_dir = env::var("CARGO_MANIFEST_DIR")
+        .map(PathBuf::from)
+        .expect("CARGO_MANIFEST_DIR must be set");
+    let overlay_dir = manifest_dir.join("vendor/ghostty-overrides");
     if !overlay_dir.exists() {
         panic!("missing ghostty overrides at {}", overlay_dir.display());
     }
